@@ -10,7 +10,8 @@
  *
  *   npm run seed:ciqual
  */
-import "dotenv/config";
+import { config } from "dotenv";
+config({ path: ".env.local", quiet: true });
 import fs from "node:fs";
 import { sql } from "drizzle-orm";
 import { db } from "../src/db";
