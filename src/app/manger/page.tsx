@@ -87,6 +87,20 @@ export default async function EatPage() {
           <FoodCapture usual={usual} />
         </div>
 
+        <h2 className="display mt-9 text-[1.35rem]">Préparer</h2>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <Tile
+            href="/manger/idees"
+            title="Idées repas"
+            sub="Avec ce que tu as dans le frigo"
+          />
+          <Tile
+            href="/manger/semaine"
+            title="La semaine"
+            sub="Plan, batch cooking, courses"
+          />
+        </div>
+
         <h2 className="display mt-9 text-[1.35rem]">Journal du jour</h2>
         <div className="mt-4">
           <DayJournal entries={entries} />
@@ -94,5 +108,14 @@ export default async function EatPage() {
       </main>
       <BottomNav />
     </>
+  );
+}
+
+function Tile({ href, title, sub }: { href: string; title: string; sub: string }) {
+  return (
+    <Link href={href} className="card p-4 transition active:scale-[0.98]">
+      <p className="text-[14.5px] font-bold">{title}</p>
+      <p className="mt-1 text-[11.5px] leading-snug text-muted">{sub}</p>
+    </Link>
   );
 }
