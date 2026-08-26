@@ -12,7 +12,7 @@ import { StepsCard, WaterCard, WeightCard, WorkoutCard } from "@/components/DayC
 import { CHALLENGE } from "@/content/challenge-21";
 import { addDays, formatDayFR, todayISO } from "@/lib/day";
 import { REFEED_EXTRA_CARBS_G, dayScore } from "@/lib/nutrition";
-import { getDayView, getProfile } from "@/lib/queries";
+import { getDayTotals, getDayView, getProfile } from "@/lib/queries";
 
 // Everything here is per-request and user-specific; caching it would show him
 // yesterday's numbers.
@@ -60,27 +60,34 @@ export default async function TodayPage() {
     proteinGoalG: log.proteinGoalG,
     kcal: totals.kcal,
     kcalGoal: budget.budgetKcal,
+    // Nothing marks a session complete yet (that lands with workout logging),
+    // so the workout slice is excluded rather than scored as a failure.
     workoutDone: false,
-    workoutPlanned: ctx.workoutPlanned,
+    workoutPlanned: false,
     waterMl: log.waterMl,
     waterGoalMl: profileRow.waterGoalMl,
   });
 
   const yesterday = recentLogs.find((l) => l.day === addDays(day, -1));
-  const scoreYesterday = yesterday
-    ? dayScore({
-        steps: yesterday.steps,
-        stepsGoal: yesterday.stepsGoal,
-        proteinG: yesterday.proteinGoalG,
-        proteinGoalG: yesterday.proteinGoalG,
-        kcal: yesterday.kcalGoal,
-        kcalGoal: yesterday.kcalGoal,
-        workoutDone: true,
-        workoutPlanned: false,
-        waterMl: yesterday.waterMl,
-        waterGoalMl: profileRow.waterGoalMl,
-      }).total
-    : null;
+  const yesterdayTotals = yesterday ? await getDayTotals(yesterday.day) : null;
+  const scoreYesterday =
+    yesterday && yesterdayTotals
+      ? dayScore({
+          steps: yesterday.steps,
+          stepsGoal: yesterday.stepsGoal,
+          proteinG: yesterdayTotals.proteinG,
+          proteinGoalG: yesterday.proteinGoalG,
+          kcal: yesterdayTotals.kcal,
+          kcalGoal: yesterday.kcalGoal,
+          // Sessions are not marked done yet (that lands with workout logging),
+          // so the workout slice is left out of the score rather than counted
+          // as a failure it has no way of knowing about.
+          workoutDone: false,
+          workoutPlanned: false,
+          waterMl: yesterday.waterMl,
+          waterGoalMl: profileRow.waterGoalMl,
+        }).total
+      : null;
 
   const stepsHistory = recentLogs.map((l) => l.steps);
   const proteinPct = log.proteinGoalG > 0 ? totals.proteinG / log.proteinGoalG : 0;
