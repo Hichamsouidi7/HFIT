@@ -10,6 +10,64 @@ export async function GET() {
   return NextResponse.json({ profile: await getProfile() });
 }
 
+/**
+ * Partial update from the settings screen.
+ *
+ * Separate from POST because POST is the onboarding path: it also records a
+ * first weigh-in and starts a challenge, neither of which should happen because
+ * someone corrected their height.
+ */
+export async function PATCH(request: Request) {
+  const body = (await request.json()) as Record<string, unknown>;
+  const current = await getProfile();
+  if (!current) return NextResponse.json({ error: "Profil manquant." }, { status: 400 });
+
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+
+  const numeric: [string, number, number][] = [
+    ["age", 10, 120],
+    ["heightCm", 100, 250],
+    ["targetWeightKg", 30, 400],
+    ["stepsGoal", 2000, 40_000],
+    ["waterGoalMl", 500, 8000],
+  ];
+
+  for (const [key, min, max] of numeric) {
+    if (body[key] === undefined) continue;
+    const value = Number(body[key]);
+    if (!Number.isFinite(value) || value < min || value > max) {
+      return NextResponse.json({ error: `Valeur invalide pour ${key}.` }, { status: 400 });
+    }
+    updates[key] = key === "stepsGoal" || key === "waterGoalMl" || key === "age"
+      ? Math.round(value)
+      : value;
+  }
+
+  if (body.aggressiveness !== undefined) {
+    const level = String(body.aggressiveness);
+    if (!["moderate", "aggressive", "extreme"].includes(level)) {
+      return NextResponse.json({ error: "Intensité invalide." }, { status: 400 });
+    }
+    updates.aggressiveness = level;
+  }
+
+  if (body.bodyFatPct !== undefined) {
+    const value = body.bodyFatPct === null || body.bodyFatPct === "" ? null : Number(body.bodyFatPct);
+    if (value !== null && (!Number.isFinite(value) || value <= 0 || value >= 70)) {
+      return NextResponse.json({ error: "Masse grasse invalide." }, { status: 400 });
+    }
+    updates.bodyFatPct = value;
+  }
+
+  for (const key of ["allergies", "dislikedFoods", "dietaryPrefs"] as const) {
+    if (body[key] !== undefined) updates[key] = String(body[key]).trim() || null;
+  }
+
+  await db.update(profile).set(updates).where(eq(profile.id, 1));
+
+  return NextResponse.json({ ok: true, profile: await getProfile() });
+}
+
 interface Body {
   sex?: "male" | "female";
   age?: number;

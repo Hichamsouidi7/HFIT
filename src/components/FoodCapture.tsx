@@ -95,11 +95,14 @@ export function FoodCapture({ usual }: { usual: UsualItem[] }) {
         }}
       />
 
-      <PortionSheet
-        food={selected}
-        onClose={() => setSelected(null)}
-        onAdded={(name) => say(`${name} ajouté`)}
-      />
+      {selected && (
+        <PortionSheet
+          key={selected.id}
+          food={selected}
+          onClose={() => setSelected(null)}
+          onAdded={(name) => say(`${name} ajouté`)}
+        />
+      )}
 
       <CreateFoodSheet
         open={createOpen}
@@ -300,24 +303,18 @@ function PortionSheet({
   onClose,
   onAdded,
 }: {
-  food: Food | null;
+  food: Food;
   onClose: () => void;
   onAdded: (name: string) => void;
 }) {
   const router = useRouter();
-  const [grams, setGrams] = useState("100");
+  // Mounted per food (see the key at the call site), so the defaults come from
+  // the initial state rather than an effect copying props into state.
+  const [grams, setGrams] = useState(() => String(Math.round(food.defaultPortionG || 100)));
   const [meal, setMeal] = useState(currentMeal);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (food) {
-      setGrams(String(Math.round(food.defaultPortionG || 100)));
-      setMeal(currentMeal());
-    }
-  }, [food]);
-
   const preview = useMemo(() => {
-    if (!food) return null;
     const factor = Number(grams) / 100;
     if (!Number.isFinite(factor) || factor <= 0) return null;
     return {
@@ -329,7 +326,6 @@ function PortionSheet({
   }, [food, grams]);
 
   async function add() {
-    if (!food) return;
     setBusy(true);
     try {
       await fetch("/api/entries", {
@@ -346,8 +342,8 @@ function PortionSheet({
   }
 
   return (
-    <Sheet open={Boolean(food)} onClose={onClose} title={food?.name ?? ""}>
-      {food?.brand && <p className="-mt-1 mb-3 text-[12px] text-muted">{food.brand}</p>}
+    <Sheet open onClose={onClose} title={food.name}>
+      {food.brand && <p className="-mt-1 mb-3 text-[12px] text-muted">{food.brand}</p>}
 
       <div className="flex gap-1.5 rounded-2xl bg-sunken p-1.5">
         {MEALS.map((m) => (

@@ -9,10 +9,11 @@ import { CalorieRing } from "@/components/Ring";
 import { QuickActions } from "@/components/QuickActions";
 import { StatCard, StepsSparkline } from "@/components/StatCard";
 import { StepsCard, WaterCard, WeightCard, WorkoutCard } from "@/components/DayCards";
-import { CHALLENGE } from "@/content/challenge-21";
+import { CHALLENGE, isoWeekday } from "@/content/challenge-21";
+import { sessionForWeekday } from "@/content/program";
 import { addDays, formatDayFR, todayISO } from "@/lib/day";
 import { REFEED_EXTRA_CARBS_G, dayScore } from "@/lib/nutrition";
-import { getDayTotals, getDayView, getProfile } from "@/lib/queries";
+import { getDayTotals, getDayView, getProfile, isWorkoutDone } from "@/lib/queries";
 
 // Everything here is per-request and user-specific; caching it would show him
 // yesterday's numbers.
@@ -50,6 +51,9 @@ export default async function TodayPage() {
     .where(gte(dailyLogs.day, addDays(day, -9)))
     .orderBy(dailyLogs.day);
 
+  const workoutDone = await isWorkoutDone(day);
+  const session = sessionForWeekday(isoWeekday(day));
+
   const trendKg = latestWeighIn?.trendKg ?? currentWeight;
   const loggedToday = latestWeighIn?.day === day;
 
@@ -60,10 +64,8 @@ export default async function TodayPage() {
     proteinGoalG: log.proteinGoalG,
     kcal: totals.kcal,
     kcalGoal: budget.budgetKcal,
-    // Nothing marks a session complete yet (that lands with workout logging),
-    // so the workout slice is excluded rather than scored as a failure.
-    workoutDone: false,
-    workoutPlanned: false,
+    workoutDone,
+    workoutPlanned: ctx.workoutPlanned,
     waterMl: log.waterMl,
     waterGoalMl: profileRow.waterGoalMl,
   });
@@ -79,10 +81,7 @@ export default async function TodayPage() {
           proteinGoalG: yesterday.proteinGoalG,
           kcal: yesterdayTotals.kcal,
           kcalGoal: yesterday.kcalGoal,
-          // Sessions are not marked done yet (that lands with workout logging),
-          // so the workout slice is left out of the score rather than counted
-          // as a failure it has no way of knowing about.
-          workoutDone: false,
+          workoutDone: await isWorkoutDone(yesterday.day),
           workoutPlanned: false,
           waterMl: yesterday.waterMl,
           waterGoalMl: profileRow.waterGoalMl,
@@ -94,19 +93,20 @@ export default async function TodayPage() {
 
   return (
     <>
-      <main className="mx-auto max-w-md px-5 pt-8">
-        <header className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-[12px] font-medium text-muted">
-              {formatDayFR(day)}
-              {ctx.dayNumber && (
-                <span className="ml-2 rounded-full bg-ink px-2 py-0.5 text-[10px] font-bold text-white">
-                  J{ctx.dayNumber}/{CHALLENGE.durationDays}
-                </span>
-              )}
-            </p>
-            <h1 className="display mt-2 text-[2.6rem]">{headline(ctx.dayNumber, scoreYesterday)}</h1>
+      <main className="mx-auto max-w-md px-5 pt-9">
+        <header className="animate-rise">
+          <div className="flex items-center gap-2">
+            <p className="text-[12px] font-medium text-muted">{formatDayFR(day)}</p>
+            {ctx.dayNumber && (
+              <Link
+                href="/progres/defi"
+                className="rounded-full bg-ink px-2.5 py-0.5 text-[10px] font-bold text-white"
+              >
+                J{ctx.dayNumber}/{CHALLENGE.durationDays}
+              </Link>
+            )}
           </div>
+          <h1 className="display mt-2 text-[2.55rem]">{headline(ctx.dayNumber, scoreYesterday)}</h1>
         </header>
 
         {ctx.refeed && (
@@ -117,7 +117,7 @@ export default async function TodayPage() {
         )}
 
         {/* Hero: the one number that decides the next meal. */}
-        <section className="card mt-6 flex flex-col items-center px-5 py-7">
+        <section className="card animate-rise mt-6 flex flex-col items-center px-5 py-7">
           <CalorieRing value={totals.kcal} goal={budget.budgetKcal} />
 
           {budget.earnedKcal > 0 && (
@@ -138,7 +138,7 @@ export default async function TodayPage() {
           <QuickActions />
         </div>
 
-        <h2 className="display mt-9 text-[1.4rem]">Résumé du jour</h2>
+        <h2 className="display mt-9 text-[1.35rem]">Résumé du jour</h2>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <StatCard
@@ -164,6 +164,7 @@ export default async function TodayPage() {
             sub="pas · protéines · kcal"
             progress={score.total / 100}
             ringColor="var(--color-ink)"
+            href="/progres/defi"
           />
 
           <StatCard
@@ -175,7 +176,7 @@ export default async function TodayPage() {
           />
         </div>
 
-        <h2 className="display mt-9 text-[1.4rem]">Macros</h2>
+        <h2 className="display mt-9 text-[1.35rem]">Macros</h2>
 
         <section className="card mt-4 space-y-4 p-5">
           <MacroBar
@@ -190,7 +191,11 @@ export default async function TodayPage() {
         </section>
 
         <div className="mt-4 space-y-3">
-          <WorkoutCard planned={ctx.workoutPlanned} done={false} />
+          <WorkoutCard
+            planned={ctx.workoutPlanned}
+            done={workoutDone}
+            title={session?.title ?? "Séance"}
+          />
 
           <StepsCard
             steps={log.steps}

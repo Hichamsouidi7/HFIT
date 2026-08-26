@@ -17,6 +17,7 @@ import {
   dailyPlan,
   liveBudget,
   macroTargets,
+  dayScore,
   nextTrend,
   trendSeries,
   type Aggressiveness,
@@ -453,6 +454,124 @@ export async function isWorkoutDone(day: string): Promise<boolean> {
     .where(and(eq(workouts.day, day), sql`${workouts.completedAt} is not null`))
     .limit(1);
   return rows.length > 0;
+}
+
+export interface ChallengeDayView {
+  day: string;
+  dayNumber: number;
+  isPast: boolean;
+  isToday: boolean;
+  steps: number;
+  stepsGoal: number;
+  proteinG: number;
+  proteinGoalG: number;
+  kcal: number;
+  kcalGoal: number;
+  waterMl: number;
+  workoutDone: boolean;
+  workoutPlanned: boolean;
+  score: number | null;
+  weightKg: number | null;
+}
+
+/**
+ * The whole challenge, day by day, with each day's score.
+ *
+ * Built from three range queries rather than one query per day: 21 days times
+ * four round trips to a serverless Postgres is a visibly slow page.
+ */
+export async function getChallengeDays(): Promise<{
+  challenge: typeof challenges.$inferSelect | null;
+  days: ChallengeDayView[];
+}> {
+  const challenge = await getActiveChallenge();
+  if (!challenge) return { challenge: null, days: [] };
+
+  const p = await getProfile();
+  const today = todayISO();
+
+  const [logs, totalsByDay, doneWorkouts, weights] = await Promise.all([
+    db
+      .select()
+      .from(dailyLogs)
+      .where(and(gte(dailyLogs.day, challenge.startDay), sql`${dailyLogs.day} <= ${challenge.endDay}`)),
+    db
+      .select({
+        day: foodEntries.day,
+        kcal: sql<number>`sum(${foodEntries.kcal})`,
+        proteinG: sql<number>`sum(${foodEntries.proteinG})`,
+      })
+      .from(foodEntries)
+      .where(and(gte(foodEntries.day, challenge.startDay), sql`${foodEntries.day} <= ${challenge.endDay}`))
+      .groupBy(foodEntries.day),
+    db
+      .select({ day: workouts.day })
+      .from(workouts)
+      .where(and(gte(workouts.day, challenge.startDay), sql`${workouts.completedAt} is not null`)),
+    db
+      .select({ day: weighIns.day, weightKg: weighIns.weightKg })
+      .from(weighIns)
+      .where(gte(weighIns.day, challenge.startDay)),
+  ]);
+
+  const logByDay = new Map(logs.map((l) => [l.day, l]));
+  const totalByDay = new Map(totalsByDay.map((t) => [t.day, t]));
+  const workoutDays = new Set(doneWorkouts.map((w) => w.day));
+  const weightByDay = new Map(weights.map((w) => [w.day, w.weightKg]));
+
+  const days: ChallengeDayView[] = [];
+
+  for (let i = 0; i < CHALLENGE.durationDays; i++) {
+    const day = addDays(challenge.startDay, i);
+    const log = logByDay.get(day);
+    const totals = totalByDay.get(day);
+    const workoutPlanned = isWorkoutDay(day);
+    const workoutDone = workoutDays.has(day);
+
+    const steps = log?.steps ?? 0;
+    const stepsGoal = log?.stepsGoal ?? stepsGoalForDayNumber(i + 1);
+    const proteinG = Math.round(Number(totals?.proteinG ?? 0));
+    const kcal = Math.round(Number(totals?.kcal ?? 0));
+
+    const isToday = day === today;
+    const isPast = day < today;
+
+    days.push({
+      day,
+      dayNumber: i + 1,
+      isPast,
+      isToday,
+      steps,
+      stepsGoal,
+      proteinG,
+      proteinGoalG: log?.proteinGoalG ?? 0,
+      kcal,
+      kcalGoal: log?.kcalGoal ?? 0,
+      waterMl: log?.waterMl ?? 0,
+      workoutDone,
+      workoutPlanned,
+      // A day in the future has no score, and a day never opened has no goals
+      // to be scored against — both stay null rather than showing a fake zero.
+      score:
+        (isPast || isToday) && log
+          ? dayScore({
+              steps,
+              stepsGoal,
+              proteinG,
+              proteinGoalG: log.proteinGoalG,
+              kcal,
+              kcalGoal: log.kcalGoal,
+              workoutDone,
+              workoutPlanned,
+              waterMl: log.waterMl,
+              waterGoalMl: p?.waterGoalMl ?? 3000,
+            }).total
+          : null,
+      weightKg: weightByDay.get(day) ?? null,
+    });
+  }
+
+  return { challenge, days };
 }
 
 export async function saveChallengeDayScore(day: string, score: number, breakdown: unknown) {

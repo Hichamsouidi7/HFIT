@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CHALLENGE_RULES_FR, stepsGoalForDayNumber } from "@/content/challenge-21";
 import { dailyPlan, projection, type Aggressiveness, type Profile } from "@/lib/nutrition";
 
@@ -11,6 +12,7 @@ const LEVELS: { id: Aggressiveness; label: string; note: string }[] = [
 ];
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const [sex, setSex] = useState<"male" | "female">("male");
   const [age, setAge] = useState("22");
   const [heightCm, setHeightCm] = useState("175");
@@ -64,7 +66,10 @@ export default function OnboardingPage() {
         setBusy(false);
         return;
       }
-      window.location.href = "/";
+      // Client navigation: the session cookie is already set, only the server
+      // data is new, so a full reload would just be slower.
+      router.replace("/");
+      router.refresh();
     } catch {
       setError("Enregistrement impossible. Vérifie ta connexion.");
       setBusy(false);

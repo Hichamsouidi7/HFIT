@@ -1,10 +1,14 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { desc, eq, sql } from "drizzle-orm";
+import { db } from "@/db";
+import { coachReports, progressPhotos, workouts } from "@/db/schema";
 import { BottomNav } from "@/components/BottomNav";
+import { CoachReport } from "@/components/CoachReport";
 import { StatCard } from "@/components/StatCard";
 import { WeightChart } from "@/components/WeightChart";
 import { CHALLENGE } from "@/content/challenge-21";
-import { daysBetween, todayISO } from "@/lib/day";
-import { autopilot } from "@/lib/nutrition";
+import { daysBetween, todayISO, weekStart } from "@/lib/day";
 import { getActiveChallenge, getProfile, getWeighIns } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -14,29 +18,32 @@ export default async function ProgressPage() {
   if (!profileRow) redirect("/bienvenue");
 
   const day = todayISO();
-  const weighIns = await getWeighIns();
-  const challenge = await getActiveChallenge();
+  const [weighIns, challenge] = await Promise.all([getWeighIns(), getActiveChallenge()]);
 
-  const first = weighIns[0];
+  const [[photoCount], [workoutCount], [report]] = await Promise.all([
+    db.select({ n: sql<number>`count(*)::int` }).from(progressPhotos),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(workouts)
+      .where(sql`${workouts.completedAt} is not null`),
+    db
+      .select()
+      .from(coachReports)
+      .where(eq(coachReports.weekStart, weekStart(day)))
+      .orderBy(desc(coachReports.createdAt))
+      .limit(1),
+  ]);
+
   const last = weighIns[weighIns.length - 1];
   const trendNow = last?.trendKg ?? profileRow.startWeightKg;
   const lostTrend = profileRow.startWeightKg - trendNow;
   const toGo = trendNow - profileRow.targetWeightKg;
-
   const dayNumber = challenge ? daysBetween(challenge.startDay, day) + 1 : null;
-
-  // The auto-pilot only says anything meaningful once the trend has had time to
-  // settle; before a week it would just be reacting to water.
-  const elapsed = first && last ? daysBetween(first.day, last.day) : 0;
-  const suggestion =
-    first && last && elapsed >= 7
-      ? autopilot(first.trendKg, last.trendKg, elapsed, 1.0)
-      : null;
 
   return (
     <>
       <main className="mx-auto max-w-md px-5 pt-10">
-        <h1 className="display text-[2.4rem]">Progrès</h1>
+        <h1 className="display text-[2.3rem]">Progrès</h1>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           <StatCard
@@ -55,18 +62,20 @@ export default async function ProgressPage() {
             label="Défi"
             value={dayNumber ? `J${Math.min(dayNumber, CHALLENGE.durationDays)}` : "—"}
             unit={dayNumber ? `/${CHALLENGE.durationDays}` : undefined}
-            sub={dayNumber ? "en cours" : "aucun défi actif"}
+            sub={dayNumber ? "voir le détail" : "aucun défi actif"}
             progress={dayNumber ? Math.min(1, dayNumber / CHALLENGE.durationDays) : 0}
             ringColor="var(--color-ink)"
+            href="/progres/defi"
           />
           <StatCard
-            label="Pesées"
-            value={String(weighIns.length)}
-            sub="enregistrées"
+            label="Photos"
+            value={String(photoCount?.n ?? 0)}
+            sub="avant / après"
+            href="/progres/photos"
           />
         </div>
 
-        <h2 className="display mt-9 text-[1.4rem]">Poids</h2>
+        <h2 className="display mt-9 text-[1.35rem]">Poids</h2>
         <div className="mt-4">
           <WeightChart
             points={weighIns.map((w) => ({
@@ -78,50 +87,55 @@ export default async function ProgressPage() {
           />
         </div>
 
-        {suggestion && (
-          <>
-            <h2 className="display mt-9 text-[1.4rem]">Auto-pilote</h2>
-            <section className="card mt-4 p-5">
-              <p className="text-[13px] leading-relaxed text-ink-soft">
-                Tendance réelle :{" "}
-                <strong className="tnum">
-                  {suggestion.actualWeeklyLossKg.toFixed(2)} kg / semaine
-                </strong>{" "}
-                (visé {suggestion.targetWeeklyLossKg.toFixed(1)}).
-              </p>
+        <h2 className="display mt-9 text-[1.35rem]">Le coach</h2>
+        <div className="mt-4">
+          <CoachReport
+            initial={
+              report
+                ? {
+                    id: report.id,
+                    weekStart: report.weekStart,
+                    content: report.content,
+                    actions: report.actions as { title: string; why: string }[] | null,
+                    adjustment: report.adjustment as never,
+                  }
+                : null
+            }
+          />
+        </div>
 
-              <p className="mt-3 text-[14px] font-semibold">
-                {suggestion.verdict === "on_track" && "Tu es dans les clous. On ne touche à rien."}
-                {suggestion.verdict === "too_slow" && "Ça avance trop lentement."}
-                {suggestion.verdict === "too_fast" && "Ça descend plus vite que prévu."}
-              </p>
-
-              {suggestion.verdict !== "on_track" && (
-                <ul className="mt-2.5 space-y-1.5 text-[13px] text-ink-soft">
-                  {suggestion.stepsAdjustment !== 0 && (
-                    <li>
-                      • {suggestion.stepsAdjustment > 0 ? "+" : ""}
-                      {suggestion.stepsAdjustment.toLocaleString("fr-FR")} pas par jour
-                    </li>
-                  )}
-                  {suggestion.kcalAdjustment !== 0 && (
-                    <li>
-                      • {suggestion.kcalAdjustment > 0 ? "+" : ""}
-                      {suggestion.kcalAdjustment} kcal par jour
-                    </li>
-                  )}
-                </ul>
-              )}
-
-              <p className="mt-3 text-[11px] leading-relaxed text-faint">
-                L&apos;application automatique de ces ajustements arrive à l&apos;étape suivante.
-                Pour l&apos;instant c&apos;est une lecture, pas une action.
-              </p>
-            </section>
-          </>
-        )}
+        <h2 className="display mt-9 text-[1.35rem]">Le reste</h2>
+        <div className="mt-4 space-y-2.5">
+          <Row href="/progres/photos" title="Photos de progression" sub="Ce que la balance ne montre pas" />
+          <Row href="/progres/defi" title="Défi 21 jours" sub="Le détail jour par jour" />
+          <Row
+            href="/bouger/exercices"
+            title="Exercices"
+            sub={`${workoutCount?.n ?? 0} séance${(workoutCount?.n ?? 0) > 1 ? "s" : ""} enregistrée${(workoutCount?.n ?? 0) > 1 ? "s" : ""}`}
+          />
+          <Row href="/reglages" title="Réglages" sub="Profil, objectifs, données" />
+        </div>
       </main>
       <BottomNav />
     </>
+  );
+}
+
+function Row({ href, title, sub }: { href: string; title: string; sub: string }) {
+  return (
+    <Link
+      href={href}
+      className="card-solid flex items-center justify-between gap-3 p-4 transition active:scale-[0.99]"
+    >
+      <div className="min-w-0">
+        <p className="text-[14px] font-semibold">{title}</p>
+        <p className="truncate text-[11.5px] text-muted">{sub}</p>
+      </div>
+      <span className="shrink-0 text-muted">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </span>
+    </Link>
   );
 }

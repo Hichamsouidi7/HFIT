@@ -243,12 +243,20 @@ export function WaterCard({ waterMl, goalMl }: { waterMl: number; goalMl: number
   );
 }
 
-export function WorkoutCard({ planned, done }: { planned: boolean; done: boolean }) {
+export function WorkoutCard({
+  planned,
+  done,
+  title,
+}: {
+  planned: boolean;
+  done: boolean;
+  title: string;
+}) {
   const router = useRouter();
 
   if (!planned) {
     return (
-      <section className="card-flat p-5">
+      <section className="card p-5">
         <h2 className="text-[12px] font-medium text-muted">Séance</h2>
         <p className="mt-1.5 text-[15px] font-semibold">Repos aujourd&apos;hui</p>
         <p className="mt-1 text-[12px] text-faint">
@@ -258,18 +266,24 @@ export function WorkoutCard({ planned, done }: { planned: boolean; done: boolean
     );
   }
 
+  if (done) {
+    return (
+      <section className="card p-5">
+        <h2 className="text-[12px] font-medium text-muted">Séance du jour</h2>
+        <p className="mt-1.5 text-[15px] font-semibold">{title} — terminée ✓</p>
+        <p className="mt-1 text-[12px] text-faint">Repos, protéines, et on remet ça.</p>
+      </section>
+    );
+  }
+
   return (
     <button
       onClick={() => router.push("/bouger")}
-      className="w-full rounded-[--radius-card] bg-accent p-5 text-left text-white shadow-[0_8px_24px_-8px_rgb(233_99_60/0.5)] transition active:scale-[0.98]"
+      className="card-accent w-full p-5 text-left transition active:scale-[0.98]"
     >
       <h2 className="text-[12px] font-medium text-white/70">Séance du jour</h2>
-      <p className="mt-1.5 text-[19px] font-bold tracking-tight">
-        {done ? "Séance terminée ✓" : "Full-body — lourd et court"}
-      </p>
-      <p className="mt-1 text-[12px] text-white/80">
-        {done ? "Bien joué. Repos et protéines." : "55 min · appuie pour démarrer"}
-      </p>
+      <p className="mt-1.5 text-[19px] font-bold tracking-tight">{title}</p>
+      <p className="mt-1 text-[12px] text-white/80">Lourd et court · appuie pour démarrer</p>
     </button>
   );
 }

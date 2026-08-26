@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Sheet, Toast } from "@/components/ui";
 
@@ -65,30 +65,25 @@ export function SessionRunner({
   const current = exercises[index];
   const doneSets = sets.filter((s) => s.exerciseSlug === current?.slug);
 
-  const suggested = current?.last?.sets.find((s) => s.setNumber === doneSets.length + 1) ??
+  const suggested =
+    current?.last?.sets.find((s) => s.setNumber === doneSets.length + 1) ??
     current?.last?.sets[current.last.sets.length - 1] ??
     null;
-
-  const [weight, setWeight] = useState("");
-  const [reps, setReps] = useState("");
-
-  useEffect(() => {
-    // Prefill with last time's numbers for this set: the fastest correct entry
-    // is usually "same as last time, maybe one more rep".
-    setWeight(suggested?.weightKg != null ? String(suggested.weightKg) : "");
-    setReps(suggested?.reps != null ? String(suggested.reps) : "");
-  }, [suggested?.weightKg, suggested?.reps, index, doneSets.length]);
 
   // Rest countdown.
   useEffect(() => {
     if (rest === null) return;
+
     if (rest <= 0) {
       navigator.vibrate?.([120, 60, 120]);
-      setRest(null);
-      return;
+      // Cleared on a delay rather than synchronously: it lets "Go" sit on screen
+      // for a beat, and setting state in the effect body would cascade a render.
+      const clear = setTimeout(() => setRest(null), 2000);
+      return () => clearTimeout(clear);
     }
-    const timer = setTimeout(() => setRest((r) => (r === null ? null : r - 1)), 1000);
-    return () => clearTimeout(timer);
+
+    const tick = setTimeout(() => setRest((r) => (r === null ? null : r - 1)), 1000);
+    return () => clearTimeout(tick);
   }, [rest]);
 
   const say = useCallback((message: string) => {
@@ -96,24 +91,14 @@ export function SessionRunner({
     setTimeout(() => setToast(null), 2200);
   }, []);
 
-  async function logSet() {
+  async function logSet(weightKg: number | null, repsValue: number) {
     if (!current) return;
-    const repsValue = Number(reps);
-    if (!Number.isFinite(repsValue) || repsValue <= 0) {
-      say("Indique le nombre de répétitions");
-      return;
-    }
 
     const setNumber = doneSets.length + 1;
     const res = await fetch(`/api/workouts/${workoutId}/sets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slug: current.slug,
-        setNumber,
-        reps: repsValue,
-        weightKg: weight === "" ? null : Number(weight),
-      }),
+      body: JSON.stringify({ slug: current.slug, setNumber, reps: repsValue, weightKg }),
     });
 
     if (!res.ok) {
@@ -124,20 +109,14 @@ export function SessionRunner({
     const data = await res.json();
     setSets((prev) => [
       ...prev,
-      {
-        id: data.set.id,
-        exerciseSlug: current.slug,
-        setNumber,
-        reps: repsValue,
-        weightKg: weight === "" ? null : Number(weight),
-      },
+      { id: data.set.id, exerciseSlug: current.slug, setNumber, reps: repsValue, weightKg },
     ]);
 
     // Beat-last-time feedback, only when there is something to beat.
     const previous = current.last?.sets.find((s) => s.setNumber === setNumber);
     if (previous) {
       const before = (previous.weightKg ?? 0) * previous.reps;
-      const now = (weight === "" ? 0 : Number(weight)) * repsValue;
+      const now = (weightKg ?? 0) * repsValue;
       if (now > before) say("Mieux que la dernière fois 💪");
     }
 
@@ -177,9 +156,11 @@ export function SessionRunner({
           {rest !== null ? (
             <button
               onClick={() => setRest(null)}
-              className="tnum shrink-0 rounded-full bg-accent px-4 py-2 text-[14px] font-bold text-white"
+              className={`tnum shrink-0 rounded-full px-4 py-2 text-[14px] font-bold text-white ${
+                rest <= 0 ? "bg-ink" : "bg-accent"
+              }`}
             >
-              {Math.floor(rest / 60)}:{String(rest % 60).padStart(2, "0")}
+              {rest <= 0 ? "GO" : `${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, "0")}`}
             </button>
           ) : (
             <Button variant="ghost" size="sm" onClick={() => setFinishOpen(true)}>
@@ -241,16 +222,15 @@ export function SessionRunner({
           </p>
         )}
 
-        <div className="mt-5 flex items-end gap-2.5">
-          <Input label="Charge" value={weight} onChange={setWeight} suffix="kg" />
-          <Input label="Reps" value={reps} onChange={setReps} suffix="×" />
-          <button
-            onClick={logSet}
-            className="h-[52px] shrink-0 rounded-2xl bg-accent px-6 font-bold text-white shadow-[0_8px_22px_-8px_rgb(233_99_60/0.6)] transition active:scale-95"
-          >
-            OK
-          </button>
-        </div>
+        {/* Keyed so a new set starts from last time's numbers without an effect
+            copying props into state — the key remounts it with fresh defaults. */}
+        <SetEntry
+          key={`${current.slug}-${doneSets.length}`}
+          defaultWeight={suggested?.weightKg != null ? String(suggested.weightKg) : ""}
+          defaultReps={suggested?.reps != null ? String(suggested.reps) : ""}
+          onLog={logSet}
+          onInvalid={() => say("Indique le nombre de répétitions")}
+        />
 
         {doneSets.length > 0 && (
           <div className="mt-4 space-y-1.5">
@@ -335,21 +315,62 @@ export function SessionRunner({
         })}
       </ol>
 
-      <FinishSheet
-        open={finishOpen}
-        onClose={() => setFinishOpen(false)}
-        workoutId={workoutId}
-        startedAt={startedAt}
-        setsLogged={sets.length}
-        onFinished={() => {
-          setFinishOpen(false);
-          router.push("/bouger");
-          router.refresh();
-        }}
-      />
+      {/* Mounted only while open, so the elapsed time is read once on open
+          rather than recomputed on every render. */}
+      {finishOpen && (
+        <FinishSheet
+          onClose={() => setFinishOpen(false)}
+          workoutId={workoutId}
+          startedAt={startedAt}
+          setsLogged={sets.length}
+          onFinished={() => {
+            setFinishOpen(false);
+            router.push("/bouger");
+            router.refresh();
+          }}
+        />
+      )}
 
       <Toast message={toast} />
     </>
+  );
+}
+
+/** One set's inputs. Owns its own draft state; remounted per set via its key. */
+function SetEntry({
+  defaultWeight,
+  defaultReps,
+  onLog,
+  onInvalid,
+}: {
+  defaultWeight: string;
+  defaultReps: string;
+  onLog: (weightKg: number | null, reps: number) => void;
+  onInvalid: () => void;
+}) {
+  const [weight, setWeight] = useState(defaultWeight);
+  const [reps, setReps] = useState(defaultReps);
+
+  function submit() {
+    const repsValue = Number(reps);
+    if (!Number.isFinite(repsValue) || repsValue <= 0) {
+      onInvalid();
+      return;
+    }
+    onLog(weight === "" ? null : Number(weight), repsValue);
+  }
+
+  return (
+    <div className="mt-5 flex items-end gap-2.5">
+      <Input label="Charge" value={weight} onChange={setWeight} suffix="kg" />
+      <Input label="Reps" value={reps} onChange={setReps} suffix="×" />
+      <button
+        onClick={submit}
+        className="h-[52px] shrink-0 rounded-2xl bg-accent px-6 font-bold text-white shadow-[0_8px_22px_-8px_rgb(233_99_60/0.6)] transition active:scale-95"
+      >
+        OK
+      </button>
+    </div>
   );
 }
 
@@ -383,28 +404,25 @@ function Input({
 }
 
 function FinishSheet({
-  open,
   onClose,
   workoutId,
   startedAt,
   setsLogged,
   onFinished,
 }: {
-  open: boolean;
   onClose: () => void;
   workoutId: number;
   startedAt: string;
   setsLogged: number;
   onFinished: () => void;
 }) {
-  const elapsedRef = useRef(0);
+  // Read once, when the sheet mounts: the duration should not tick upward while
+  // he is choosing how the session felt.
+  const [elapsed] = useState(() =>
+    Math.max(5, Math.round((Date.now() - new Date(startedAt).getTime()) / 60000)),
+  );
   const [rating, setRating] = useState(3);
   const [busy, setBusy] = useState(false);
-
-  elapsedRef.current = Math.max(
-    5,
-    Math.round((Date.now() - new Date(startedAt).getTime()) / 60000),
-  );
 
   async function finish() {
     setBusy(true);
@@ -412,7 +430,7 @@ function FinishSheet({
       await fetch(`/api/workouts/${workoutId}/finish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ durationMinutes: elapsedRef.current, rating }),
+        body: JSON.stringify({ durationMinutes: elapsed, rating }),
       });
       onFinished();
     } finally {
@@ -421,10 +439,10 @@ function FinishSheet({
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Terminer la séance">
+    <Sheet open onClose={onClose} title="Terminer la séance">
       <div className="grid grid-cols-2 gap-2.5">
         <div className="rounded-2xl bg-sunken px-4 py-3 text-center">
-          <p className="tnum text-[22px] font-bold">{elapsedRef.current}</p>
+          <p className="tnum text-[22px] font-bold">{elapsed}</p>
           <p className="text-[11px] text-muted">minutes</p>
         </div>
         <div className="rounded-2xl bg-sunken px-4 py-3 text-center">
