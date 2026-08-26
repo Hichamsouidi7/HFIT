@@ -80,9 +80,11 @@ export function DayJournal({ entries }: { entries: Entry[] }) {
                       )}
                     </p>
                     <p className="tnum truncate text-[11px] text-muted">
-                      {Math.round(entry.quantityG)} g · {Math.round(entry.kcal)} kcal ·{" "}
-                      {Math.round(entry.proteinG)} P / {Math.round(entry.fatG)} L /{" "}
-                      {Math.round(entry.carbsG)} G
+                      {/* Recipes are logged per portion and carry no weight, so
+                          showing "0 g" would read as a bug rather than a unit. */}
+                      {entry.quantityG > 0 ? `${Math.round(entry.quantityG)} g` : "1 portion"} ·{" "}
+                      {Math.round(entry.kcal)} kcal · {Math.round(entry.proteinG)} P /{" "}
+                      {Math.round(entry.fatG)} L / {Math.round(entry.carbsG)} G
                     </p>
                   </div>
                   <button

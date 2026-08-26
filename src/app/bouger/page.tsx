@@ -1,12 +1,22 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
 import { StepsCard } from "@/components/DayCards";
+import { StartWorkout } from "@/components/StartWorkout";
 import { CHALLENGE, isoWeekday } from "@/content/challenge-21";
-import { SESSIONS, sessionForWeekday } from "@/content/program";
+import { SESSIONS, resolveSession, sessionForWeekday } from "@/content/program";
 import { formatDayFR, todayISO } from "@/lib/day";
-import { getDayView, getProfile } from "@/lib/queries";
+import {
+  getDayView,
+  getOpenWorkout,
+  getProfile,
+  getWorkoutHistory,
+  isWorkoutDone,
+} from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
+
+const WEEKDAY_SHORT = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"];
 
 export default async function MovePage() {
   const profileRow = await getProfile();
@@ -17,61 +27,66 @@ export default async function MovePage() {
   if (!view) redirect("/bienvenue");
 
   const { log, budget } = view;
-  const session = sessionForWeekday(isoWeekday(day));
+  const weekday = isoWeekday(day);
+  const session = sessionForWeekday(weekday);
+
+  const [done, open, history] = await Promise.all([
+    isWorkoutDone(day),
+    getOpenWorkout(day),
+    getWorkoutHistory(8),
+  ]);
 
   return (
     <>
       <main className="mx-auto max-w-md px-5 pt-10">
-        <h1 className="display text-[2.4rem]">Bouger</h1>
-        <p className="mt-2 text-[13px] text-muted">{formatDayFR(day)}</p>
+        <h1 className="display text-[2.3rem]">Bouger</h1>
+        <p className="mt-1.5 text-[13px] text-muted">{formatDayFR(day)}</p>
 
-        {session ? (
-          <>
-            <section className="mt-5 rounded-[1.75rem] bg-accent p-5 text-white shadow-[0_8px_24px_-8px_rgb(233_99_60/0.5)]">
-              <p className="text-[12px] font-medium text-white/70">Séance du jour</p>
-              <h2 className="mt-1 text-[22px] font-bold tracking-tight">{session.title}</h2>
-              <p className="mt-1 text-[13px] text-white/85">
-                {session.focus} · {CHALLENGE.sessionMinutes} min
+        <div className="mt-5">
+          {!session ? (
+            <section className="card p-6">
+              <h2 className="text-[17px] font-bold">Repos aujourd&apos;hui</h2>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+                Pas de muscu prévue. Garde les pas : c&apos;est eux qui creusent le déficit, et ils
+                ne coûtent rien à la récupération.
               </p>
             </section>
+          ) : done ? (
+            <section className="card p-6">
+              <h2 className="text-[17px] font-bold">Séance terminée ✓</h2>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+                {session.title} bouclée. Repos, protéines, et on remet ça.
+              </p>
+            </section>
+          ) : (
+            <StartWorkout sessionTitle={session.title} resume={Boolean(open)} />
+          )}
+        </div>
 
-            <ol className="mt-4 space-y-2.5">
-              {session.exercises.map((ex, i) => (
-                <li key={ex.name} className="card p-4">
+        {session && !done && (
+          <>
+            <h2 className="display mt-8 text-[1.35rem]">Au programme</h2>
+            <ol className="mt-4 space-y-2">
+              {resolveSession(session).map((p, i) => (
+                <li key={p.slug} className="card-solid p-4">
                   <div className="flex items-start gap-3">
                     <span className="tnum mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sunken text-[11px] font-bold text-ink-soft">
                       {i + 1}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-semibold">{ex.name}</p>
+                      <p className="text-[14.5px] font-semibold">{p.exercise.name}</p>
                       <p className="tnum mt-0.5 text-[12px] text-muted">
-                        {ex.sets} × {ex.reps} · repos {ex.restSeconds}s
+                        {p.sets} × {p.reps} · repos {p.restSeconds}s
                       </p>
-                      {ex.cue && (
-                        <p className="mt-1.5 text-[12px] leading-snug text-faint">{ex.cue}</p>
-                      )}
                     </div>
                   </div>
                 </li>
               ))}
             </ol>
-
-            <p className="mt-4 rounded-2xl bg-sunken p-4 text-[12px] leading-relaxed text-ink-soft">
-              L&apos;enregistrement des séries et le chrono de repos arrivent à la prochaine étape.
-              Pour ce soir, la séance est là : suis-la et note tes charges où tu veux.
-            </p>
           </>
-        ) : (
-          <section className="card mt-5 p-6">
-            <h2 className="text-[17px] font-bold">Repos aujourd&apos;hui</h2>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-              Pas de muscu prévue. Garde les pas : c&apos;est eux qui creusent le déficit, et ils ne
-              coûtent rien à la récupération.
-            </p>
-          </section>
         )}
 
-        <h2 className="display mt-9 text-[1.4rem]">Pas</h2>
+        <h2 className="display mt-9 text-[1.35rem]">Pas</h2>
         <div className="mt-4">
           <StepsCard
             steps={log.steps}
@@ -81,24 +96,53 @@ export default async function MovePage() {
           />
         </div>
 
-        <h2 className="display mt-9 text-[1.4rem]">La semaine</h2>
+        <div className="mt-9 flex items-baseline justify-between gap-3">
+          <h2 className="display text-[1.35rem]">La semaine</h2>
+          <Link href="/bouger/exercices" className="text-[12.5px] font-semibold text-accent">
+            Tous les exercices →
+          </Link>
+        </div>
+
         <ul className="card mt-4 divide-y divide-line">
           {SESSIONS.map((s) => (
             <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-3.5">
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold">{s.title}</p>
-                <p className="truncate text-[11px] text-muted">{s.focus}</p>
+                <p className="truncate text-[11.5px] text-muted">{s.focus}</p>
               </div>
               <span
                 className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                  s.weekday === isoWeekday(day) ? "bg-accent text-white" : "bg-sunken text-muted"
+                  s.weekday === weekday ? "bg-accent text-white" : "bg-sunken text-muted"
                 }`}
               >
-                {["lun", "mar", "mer", "jeu", "ven", "sam", "dim"][s.weekday - 1]}
+                {WEEKDAY_SHORT[s.weekday - 1]}
               </span>
             </li>
           ))}
         </ul>
+        <p className="mt-2.5 px-1 text-[11.5px] leading-relaxed text-faint">
+          {CHALLENGE.workoutWeekdays.length} séances par semaine, lourdes et courtes. En déficit, la
+          récupération est la ressource rare : le volume est volontairement contenu.
+        </p>
+
+        {history.length > 0 && (
+          <>
+            <h2 className="display mt-9 text-[1.35rem]">Historique</h2>
+            <ul className="card mt-4 divide-y divide-line">
+              {history.map((w) => (
+                <li key={w.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13.5px] font-semibold">{w.name}</p>
+                    <p className="text-[11px] text-muted">{formatDayFR(w.day)}</p>
+                  </div>
+                  <span className="tnum shrink-0 text-[11.5px] text-muted">
+                    {w.durationMinutes} min · {w.kcal} kcal
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </main>
       <BottomNav />
     </>

@@ -1,10 +1,11 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BottomNav } from "@/components/BottomNav";
-import { FoodSearch } from "@/components/FoodSearch";
 import { DayJournal } from "@/components/DayJournal";
+import { FoodCapture } from "@/components/FoodCapture";
 import { MacroBar } from "@/components/MacroBar";
-import { todayISO } from "@/lib/day";
-import { getDayEntries, getDayView, getProfile } from "@/lib/queries";
+import { currentMeal, todayISO } from "@/lib/day";
+import { getDayEntries, getDayView, getProfile, usualForMeal } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -19,21 +20,32 @@ export default async function EatPage() {
   const entries = await getDayEntries(day);
   const { log, totals, budget } = view;
   const remaining = budget.budgetKcal - totals.kcal;
+  const proteinLeft = Math.max(0, log.proteinGoalG - totals.proteinG);
+
+  // "What he usually has at this time of day" — habits on a cut are extremely
+  // stable, so this removes the search step for most entries.
+  const usual = (await usualForMeal(currentMeal())).map((u) => ({
+    name: u.name,
+    quantityG: Number(u.quantityG),
+    kcal: Number(u.kcal),
+    proteinG: Number(u.proteinG),
+    fatG: Number(u.fatG),
+    carbsG: Number(u.carbsG),
+    times: Number(u.times),
+  }));
 
   return (
     <>
       <main className="mx-auto max-w-md px-5 pt-10">
-        <h1 className="display text-[2.4rem]">Manger</h1>
+        <h1 className="display text-[2.3rem]">Manger</h1>
 
         <section className="card mt-5 p-5">
           <div className="flex items-baseline justify-between gap-3">
             <div>
-              <p className="text-[12px] font-medium text-muted">
-                {remaining >= 0 ? "Il te reste" : "Tu es au-dessus de"}
-              </p>
+              <p className="label">{remaining >= 0 ? "Il te reste" : "Tu es au-dessus de"}</p>
               <div className="mt-1 flex items-baseline gap-1.5">
                 <span
-                  className={`tnum display text-[2.4rem] ${remaining < 0 ? "text-danger" : "text-ink"}`}
+                  className={`tnum display text-[2.4rem] ${remaining < 0 ? "text-danger" : ""}`}
                 >
                   {Math.abs(Math.round(remaining))}
                 </span>
@@ -56,14 +68,26 @@ export default async function EatPage() {
             <MacroBar label="Lipides" value={totals.fatG} goal={log.fatGoalG} color="fat" />
             <MacroBar label="Glucides" value={totals.carbsG} goal={log.carbsGoalG} color="carbs" />
           </div>
+
+          {proteinLeft > 0 && (
+            <Link
+              href="/manger/idees"
+              className="mt-4 flex items-center justify-between gap-2 rounded-2xl bg-sunken px-4 py-3 transition active:scale-[0.99]"
+            >
+              <span className="text-[12.5px] leading-snug text-ink-soft">
+                Il te manque <strong>{proteinLeft} g de protéines</strong> et il te reste{" "}
+                <strong>{Math.max(0, Math.round(remaining))} kcal</strong>.
+              </span>
+              <span className="shrink-0 text-[12px] font-semibold text-accent">Des idées →</span>
+            </Link>
+          )}
         </section>
 
-        <h2 className="display mt-8 text-[1.4rem]">Ajouter</h2>
-        <div className="mt-4">
-          <FoodSearch />
+        <div className="mt-6">
+          <FoodCapture usual={usual} />
         </div>
 
-        <h2 className="display mt-9 text-[1.4rem]">Journal du jour</h2>
+        <h2 className="display mt-9 text-[1.35rem]">Journal du jour</h2>
         <div className="mt-4">
           <DayJournal entries={entries} />
         </div>

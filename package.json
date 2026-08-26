@@ -16,7 +16,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@google/genai": "^2.19.0",
     "@neondatabase/serverless": "^1.1.0",
+    "barcode-detector": "^3.2.2",
     "drizzle-orm": "^0.45.2",
     "next": "16.3.3",
     "react": "19.2.8",

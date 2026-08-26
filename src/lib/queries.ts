@@ -4,10 +4,13 @@ import {
   challengeDays,
   challenges,
   dailyLogs,
+  exercises,
   foodEntries,
   foods,
   profile,
   weighIns,
+  workoutSets,
+  workouts,
 } from "@/db/schema";
 import {
   applyRefeed,
@@ -21,7 +24,7 @@ import {
   type Profile as EngineProfile,
   type Sex,
 } from "@/lib/nutrition";
-import { daysBetween, todayISO } from "@/lib/day";
+import { addDays, daysBetween, todayISO } from "@/lib/day";
 import { searchVariants } from "@/lib/search";
 import { CHALLENGE, isRefeedDay, isWorkoutDay, stepsGoalForDayNumber } from "@/content/challenge-21";
 
@@ -326,6 +329,130 @@ export async function recentFoods(limit = 12): Promise<FoodRow[]> {
     .where(sql`${foods.useCount} > 0`)
     .orderBy(desc(foods.useCount))
     .limit(limit);
+}
+
+export async function favoriteFoods(limit = 40): Promise<FoodRow[]> {
+  return db
+    .select()
+    .from(foods)
+    .where(eq(foods.isFavorite, true))
+    .orderBy(desc(foods.useCount), asc(foods.name))
+    .limit(limit);
+}
+
+/**
+ * The foods most eaten on a given meal, in the last few weeks.
+ *
+ * Habits are extremely stable on a cut — the same breakfast most days — so
+ * surfacing "what you usually have at this meal" removes the search step
+ * entirely for the majority of entries.
+ */
+export async function usualForMeal(meal: string, limit = 8) {
+  return db
+    .select({
+      name: foodEntries.name,
+      foodId: foodEntries.foodId,
+      quantityG: sql<number>`max(${foodEntries.quantityG})`,
+      kcal: sql<number>`max(${foodEntries.kcal})`,
+      proteinG: sql<number>`max(${foodEntries.proteinG})`,
+      fatG: sql<number>`max(${foodEntries.fatG})`,
+      carbsG: sql<number>`max(${foodEntries.carbsG})`,
+      times: sql<number>`count(*)`,
+    })
+    .from(foodEntries)
+    .where(and(eq(foodEntries.meal, meal), gte(foodEntries.day, addDays(todayISO(), -28))))
+    .groupBy(foodEntries.name, foodEntries.foodId)
+    .orderBy(sql`count(*) desc`)
+    .limit(limit);
+}
+
+/**
+ * What he did last time on a given exercise.
+ *
+ * This is the whole mechanism of progressive overload: without the previous
+ * numbers in front of you mid-set, you default to the weight that feels
+ * familiar, and a cut is exactly when that stops being enough.
+ */
+export async function lastPerformance(exerciseSlug: string) {
+  const rows = await db
+    .select({
+      day: workouts.day,
+      setNumber: workoutSets.setNumber,
+      reps: workoutSets.reps,
+      weightKg: workoutSets.weightKg,
+      rpe: workoutSets.rpe,
+    })
+    .from(workoutSets)
+    .innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id))
+    .innerJoin(workouts, eq(workoutSets.workoutId, workouts.id))
+    .where(and(eq(exercises.slug, exerciseSlug), sql`${workouts.completedAt} is not null`))
+    .orderBy(desc(workouts.day), asc(workoutSets.setNumber))
+    .limit(12);
+
+  if (rows.length === 0) return null;
+
+  const lastDay = rows[0].day;
+  const sets = rows.filter((r) => r.day === lastDay);
+  const best = sets.reduce(
+    (acc, s) => Math.max(acc, (s.weightKg ?? 0) * s.reps),
+    0,
+  );
+
+  return { day: lastDay, sets, bestVolume: best };
+}
+
+/** Last performance for several exercises at once, keyed by slug. */
+export async function lastPerformances(slugs: string[]) {
+  const entries = await Promise.all(
+    slugs.map(async (slug) => [slug, await lastPerformance(slug)] as const),
+  );
+  return Object.fromEntries(entries);
+}
+
+export async function getWorkoutHistory(limit = 30) {
+  return db
+    .select()
+    .from(workouts)
+    .where(sql`${workouts.completedAt} is not null`)
+    .orderBy(desc(workouts.day))
+    .limit(limit);
+}
+
+/** The open (unfinished) workout for a day, if there is one. */
+export async function getOpenWorkout(day: string) {
+  const rows = await db
+    .select()
+    .from(workouts)
+    .where(and(eq(workouts.day, day), sql`${workouts.completedAt} is null`))
+    .orderBy(desc(workouts.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getWorkoutSets(workoutId: number) {
+  return db
+    .select({
+      id: workoutSets.id,
+      exerciseSlug: exercises.slug,
+      setNumber: workoutSets.setNumber,
+      reps: workoutSets.reps,
+      weightKg: workoutSets.weightKg,
+      rpe: workoutSets.rpe,
+    })
+    .from(workoutSets)
+    .innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id))
+    .where(eq(workoutSets.workoutId, workoutId))
+    .orderBy(asc(workoutSets.id));
+}
+
+/** Whether a completed session exists for the day, for the score and the UI. */
+export async function isWorkoutDone(day: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: workouts.id })
+    .from(workouts)
+    .where(and(eq(workouts.day, day), sql`${workouts.completedAt} is not null`))
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function saveChallengeDayScore(day: string, score: number, breakdown: unknown) {

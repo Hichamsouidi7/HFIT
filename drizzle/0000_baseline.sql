@@ -140,8 +140,10 @@ CREATE TABLE "profile" (
 CREATE TABLE "progress_photos" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"day" date NOT NULL,
-	"url" text NOT NULL,
-	"pose" text,
+	"image_data" text NOT NULL,
+	"pose" text DEFAULT 'face' NOT NULL,
+	"weight_kg" real,
+	"note" text,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -225,6 +227,7 @@ CREATE INDEX "food_entries_day_idx" ON "food_entries" USING btree ("day");--> st
 CREATE INDEX "foods_search_name_idx" ON "foods" USING btree ("search_name");--> statement-breakpoint
 CREATE INDEX "foods_barcode_idx" ON "foods" USING btree ("barcode");--> statement-breakpoint
 CREATE INDEX "foods_use_count_idx" ON "foods" USING btree ("use_count");--> statement-breakpoint
+CREATE INDEX "progress_photos_day_idx" ON "progress_photos" USING btree ("day");--> statement-breakpoint
 CREATE UNIQUE INDEX "weigh_ins_day_idx" ON "weigh_ins" USING btree ("day");--> statement-breakpoint
 CREATE INDEX "workout_sets_exercise_idx" ON "workout_sets" USING btree ("exercise_id");--> statement-breakpoint
 CREATE INDEX "workouts_day_idx" ON "workouts" USING btree ("day");

@@ -1,5 +1,5 @@
 {
-  "id": "263d892e-d354-4d1c-851b-f255b7be45e7",
+  "id": "739f1212-d928-439f-af7f-160af55691a7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -969,14 +969,27 @@
           "primaryKey": false,
           "notNull": true
         },
-        "url": {
-          "name": "url",
+        "image_data": {
+          "name": "image_data",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
         "pose": {
           "name": "pose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'face'"
+        },
+        "weight_kg": {
+          "name": "weight_kg",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -989,7 +1002,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "progress_photos_day_idx": {
+          "name": "progress_photos_day_idx",
+          "columns": [
+            {
+              "expression": "day",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

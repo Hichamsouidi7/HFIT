@@ -56,3 +56,35 @@ export function formatDayFR(isoDay: string): string {
   const dow = (dt.getUTCDay() + 6) % 7;
   return `${DAY_NAMES[dow]} ${dt.getUTCDate()} ${MONTH_NAMES[dt.getUTCMonth()]}`;
 }
+
+export const MEALS = [
+  { id: "petit-dejeuner", label: "Petit-déj" },
+  { id: "dejeuner", label: "Déjeuner" },
+  { id: "diner", label: "Dîner" },
+  { id: "collation", label: "Collation" },
+] as const;
+
+export type MealId = (typeof MEALS)[number]["id"];
+
+/** Which meal a given hour belongs to. Shared by the server and the client. */
+export function mealForHour(hour: number): MealId {
+  if (hour < 11) return "petit-dejeuner";
+  if (hour < 15) return "dejeuner";
+  if (hour < 18) return "collation";
+  return "diner";
+}
+
+/** Current hour in Paris, so the server and the phone agree on the meal. */
+export function hourInParis(now: Date = new Date()): number {
+  return Number(
+    new Intl.DateTimeFormat("fr-FR", {
+      timeZone: TIMEZONE,
+      hour: "2-digit",
+      hour12: false,
+    }).format(now),
+  );
+}
+
+export function currentMeal(now: Date = new Date()): MealId {
+  return mealForHour(hourInParis(now));
+}

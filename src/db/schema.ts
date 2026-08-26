@@ -283,10 +283,24 @@ export const coachReports = pgTable("coach_reports", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const progressPhotos = pgTable("progress_photos", {
-  id: serial("id").primaryKey(),
-  day: date("day").notNull(),
-  url: text("url").notNull(),
-  pose: text("pose"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+/**
+ * Progress photos, stored in the database as compressed JPEG data URLs.
+ *
+ * Object storage would be tidier, but it means another service to set up and
+ * another token to keep alive, for a handful of ~120 KB images a week. They are
+ * served through an API route so page HTML only ever carries ids, and the
+ * browser can cache and lazy-load the images themselves.
+ */
+export const progressPhotos = pgTable(
+  "progress_photos",
+  {
+    id: serial("id").primaryKey(),
+    day: date("day").notNull(),
+    imageData: text("image_data").notNull(),
+    pose: text("pose").notNull().default("face"),
+    weightKg: real("weight_kg"),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("progress_photos_day_idx").on(t.day)],
+);
