@@ -8,7 +8,11 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "HFit",
   description: "Suivi nutrition, entraînement et perte de poids",
-  appleWebApp: { capable: true, title: "HFit", statusBarStyle: "black-translucent" },
+  manifest: "/manifest.json",
+  // iOS ignores the manifest icons and reads this one when adding to the home
+  // screen, so it has to be declared separately.
+  icons: { apple: "/icons/icon-180.png", icon: "/icons/icon-192.png" },
+  appleWebApp: { capable: true, title: "HFit", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
